@@ -1,0 +1,16 @@
+# Wally packages — restored via `wally install`
+/Packages
+/ServerPackages
+/DevPackages
+
+# Generated
+sourcemap.json
+
+# Build outputs (place is built from source, not committed)
+*.rbxl
+*.rbxlx
+*.rbxl.lock
+*.rbxlx.lock
+
+# OS / editor
+.DS_Store
