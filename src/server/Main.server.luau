@@ -1,11 +1,12 @@
 --!strict
 local Players = game:GetService("Players")
 local PlayerData = require(script.Parent.PlayerData)
+local Shop = require(script.Parent.Shop)
 
 PlayerData.Init()
+Shop.Init()
 
--- DEMO ONLY: passive income so you can watch the client HUD tick up.
--- Delete this loop once real generators exist.
+-- DEMO ONLY: passive income so you have Cash to spend.
 while true do
 	task.wait(1)
 	for _, player in Players:GetPlayers() do

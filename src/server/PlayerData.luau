@@ -97,4 +97,16 @@ function PlayerData.Init()
 	end)
 end
 
+-- Run a mutation against the player's data and replicate once.
+-- Do NOT yield inside `fn` — the read/validate/write must stay atomic.
+function PlayerData.Mutate(player: Player, fn: (data: { [string]: any }) -> ()): boolean
+	local profile = Profiles[player]
+	if not profile then
+		return false
+	end
+	fn(profile.Data)
+	replicate(player)
+	return true
+end
+
 return PlayerData
