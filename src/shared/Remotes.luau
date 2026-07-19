@@ -36,9 +36,15 @@ end
 return {
 	DataChanged = getRemote("RemoteEvent", "DataChanged") :: RemoteEvent,
 	RequestData = getRemote("RemoteFunction", "RequestData") :: RemoteFunction,
-	-- Conveyor card shop: server pushes offers, client asks to buy one.
+	-- Conveyor pack shop: server pushes offers, client asks to buy one.
 	OfferSpawned = getRemote("RemoteEvent", "OfferSpawned") :: RemoteEvent,
 	OfferRemoved = getRemote("RemoteEvent", "OfferRemoved") :: RemoteEvent,
 	BuyOffer = getRemote("RemoteEvent", "BuyOffer") :: RemoteEvent,
+	-- Pack lifecycle: inventory -> placed (timer) -> opened (card roll).
+	PlacePack = getRemote("RemoteEvent", "PlacePack") :: RemoteEvent,
+	OpenPack = getRemote("RemoteEvent", "OpenPack") :: RemoteEvent,
+	-- Income claims: bank a card's pending Coins (or all cards').
+	ClaimCard = getRemote("RemoteEvent", "ClaimCard") :: RemoteEvent,
+	ClaimAll = getRemote("RemoteEvent", "ClaimAll") :: RemoteEvent,
 	Notify = getRemote("RemoteEvent", "Notify") :: RemoteEvent,
 }

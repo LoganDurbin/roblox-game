@@ -6,15 +6,38 @@ local ProfileStore = require(script.Parent.ProfileStore)
 local Remotes = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Remotes"))
 
 local PROFILE_TEMPLATE = {
-	Coins = 250, -- enough for a couple of first summons; without a card, income is 0
+	Coins = 250, -- enough for a couple of first packs; without a card, income is 0
 	Gems = 0,
-	Cards = {}, -- collection: [cardId] = copies (>= 1 means discovered in the index)
+	-- Collection: [cardId] = { copies, modifier, lastClaimAt }.
+	-- copies >= 1 means discovered in the index; modifier is best-wins;
+	-- lastClaimAt anchors lazy income accrual (see CardStats).
+	Cards = {},
+	-- Pack inventory + placed packs: [uid string] = { page, modifier, state,
+	-- openReadyAt }. state is "stored" or "placed"; openReadyAt is os.time()
+	-- when a placed pack becomes openable. String keys keep the table
+	-- DataStore-safe.
+	Packs = {},
+	NextPackUid = 1, -- per-player counter so pack uids survive rejoins
 	Prestige = 0,
-	Luck = 1, -- multiplies non-Common conveyor spawn weights; raised by prestige/gamepasses later
-	-- Note: pre-pivot dev profiles may still carry Cash/Units/Rebirths keys
-	-- (Reconcile only adds missing keys, never removes). Harmless; ignore or
+	Luck = 1, -- reserved: belt-side pack luck (upgrades, M3)
+	MutationLuck = 1, -- multiplies non-Mortal modifier spawn weights (upgrades, M3)
+	-- Note: older dev profiles may still carry stale keys (Cash/Units/...) —
+	-- Reconcile only adds missing keys, never removes. Harmless; ignore or
 	-- wipe test data.
 }
+
+-- Older card-core profiles stored Cards[id] as a plain copy count. Normalize
+-- to the entry table so the rest of the code can assume one shape.
+local function migrate(data: { [string]: any })
+	local now = os.time()
+	if type(data.Cards) == "table" then
+		for id, value in data.Cards do
+			if type(value) == "number" then
+				data.Cards[id] = { copies = value, modifier = "mortal", lastClaimAt = now }
+			end
+		end
+	end
+end
 
 local PlayerStore = ProfileStore.New("PlayerData", PROFILE_TEMPLATE)
 
@@ -73,6 +96,7 @@ function PlayerData.Init()
 
 		profile:AddUserId(player.UserId)
 		profile:Reconcile()
+		migrate(profile.Data)
 
 		profile.OnSessionEnd:Connect(function()
 			Profiles[player] = nil

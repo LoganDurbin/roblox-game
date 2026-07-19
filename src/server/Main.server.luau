@@ -1,8 +1,10 @@
 --!strict
 local PlayerData = require(script.Parent.PlayerData)
 local Conveyor = require(script.Parent.Conveyor)
-local Income = require(script.Parent.Income)
+local Packs = require(script.Parent.Packs)
+local Claim = require(script.Parent.Claim)
 
 PlayerData.Init()
 Conveyor.Init()
-Income.Init()
+Packs.Init()
+Claim.Init()
