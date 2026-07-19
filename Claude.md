@@ -15,44 +15,72 @@ sole developer/scripter; a small friend group fills modeling, UI, and QA
 roles (mostly TBD — see Open Questions).
 
 **Direction pivoted 2026-07-18** (again) from the short-lived Brainrot Merge
-concept. The backend spine is genre-agnostic and unchanged across every
-pivot; only the domain layer is (re)built each time. Pre-pivot code
-(`Shop.luau`, `UnitCatalog.luau`, the `BuyUnit` remote, `Cash`) is slated for
-rework — see Current implementation state.
+concept, then refined 2026-07-19 into the **physical pack economy** (see
+Locked core loop). The backend spine is genre-agnostic and unchanged across
+every pivot; only the domain layer is (re)built each time.
 
-## Locked core loop
+## Locked core loop (pack economy, locked 2026-07-19)
 
-Idle-collector: **owned cards earn currency passively** → spend it at the
-**conveyor card shop** (server rolls a card offer every few seconds, weighted
-by rarity × the player's **Luck** stat; offers slide across a belt and can be
-bought before they expire) → new cards fill the **index**; duplicates
-**level up** the card you own (more income) → **completing an index page**
-(a pantheon/universe theme) grants a permanent income bonus → **Prestige**
-later for a permanent multiplier + Luck.
+The game is **physical-first** (tycoon-ish): each player has a plot with a
+conveyor belt, an open placement square, and a physical index book. The HUD
+is only menu buttons (Index / Inventory / Shop / Items) + purchasable boosts.
+The economy below is fully specified; the physical world lands in M4 (until
+then a flat test UI drives the same server systems).
 
-**Index pages are 3×3: exactly 9 cards per page** (4 Common / 2 Rare /
-2 Epic / 1 Legendary). Locked 2026-07-18.
+1. **Belt sells page packs on a price ladder.** A personal conveyor spawns
+   a pack offer every 2 s (per player, server-rolled). Pages are TIERED by
+   mythology popularity (Greek = tier 1 … Aboriginal = tier 16; the
+   PageCatalog list order IS the ladder). Pack price = `100 × R^(tier-1)`
+   with **R = CLIMB_RATE = 5** (PackConfig), uncapped — tier 16 lands in
+   the trillions and that's fine, because **card income scales by the same
+   R^(tier-1)**, so each page earns close enough to accrue the next rung
+   (per-rung climb time stays roughly constant; R is the master pace dial).
+   All 16 pages are eligible on the belt from the start — price alone gates
+   buying. Appearance weight falls off per tier
+   (`PAGE_FALLOFF^((tier-1)/Luck)`): affordable packs dominate, but any
+   spawn can be a high-tier pack drifting past — intentional monetization
+   pressure (planned Robux instant-buy dev product). **Luck's job (locked):
+   it flattens the page-tier falloff** so richer players see better packs;
+   `MutationLuck` is the separate dial for modifier odds. Offers ride the
+   belt 15 s (**7.5 visible**, locked) then expire.
+2. **Modifiers ("mutations")** — godly ladder, rolled at belt spawn, out of
+   10000: Mortal 1× (9000), Blessed 2× (600), Hallowed 5× (250), Divine 10×
+   (100), Ascendant 20× (40), Celestial 50× (9), Primordial 75× (1).
+   `MutationLuck` multiplies non-Mortal weights. **A modified pack costs
+   page price × the modifier's mult** (Divine Greek = 100 × 10 = 1000) —
+   money-neutral on paper, but the boost is permanent and skips the
+   leveling grind (the allure), and lucky rolls can't shortcut the ladder.
+   Higher tiers take longer to open (15 s → 20 min ladder): the wait is
+   part of the chase, and timer-skips sell later.
+3. **Buy → Inventory → Place → Open.** Bought packs go to a near-infinite
+   inventory; placing (limit 4, upgradeable in M3) starts the open timer
+   (absolute `os.time`, so it counts down offline). Opening **rolls the card
+   server-side** from the pack's page with **fixed in-page odds** (per card:
+   Common w20, Rare w6, Epic w3, Legendary w1 → each C ≈20%, R ≈6%, E ≈3%,
+   L ≈1%). No stat ever changes in-pack odds — Luck/MutationLuck only shape
+   what appears on the belt.
+4. **Dupes level the card; modifier is best-wins.** A repeat card raises
+   copies (more income). The pack's modifier overwrites the card's stored
+   one only if strictly better; equal/worse never downgrades.
+5. **Income is per-card and manually claimed.** Each unlocked card accrues
+   `baseIncome × R^(tier-1) × copies × modifierMult × completionMult`
+   Coins/sec into its own pool, capped at 1 h of storage (upgradeable in
+   M3); accrual is lazy (`lastClaimAt`), which handles offline for free.
+   Claiming (tap the card, or paid Auto-Collect in M3) banks
+   `rate × min(elapsed, cap)`.
+6. **Completing a 3×3 index page** (exactly 9 cards: 4C/2R/2E/1L, locked)
+   multiplies ALL rates by that page's bonus → **Prestige** later.
 
-Three decisions are locked (2026-07-18):
+Upgrade system (M3): Luck, cash mult, placement limit, mutation luck,
+storage cap — Coins and Robux, scaling costs. Robux ladder: x2→x4→x6 income.
 
-1. **Mythology first; supers later.** Ship with public-domain pantheons
-   (Greek/Norse/Egyptian/…) as the first index pages. The "supers" side is
-   deferred — and when built, will use **original, legally-distinct**
-   characters (archetype-inspired), never actual Marvel/DC IP. Roblox deletes
-   games using copyrighted characters; this is a hard constraint.
-2. **Idle-collector, not a battler.** Cards passively generate currency;
-   there is no combat/deck system. Retention comes from the summon loop +
-   index completion, not PvP.
-3. **Duplicates level the card.** A repeat pull powers up the copy you own
-   (higher income) rather than being wasted — this is the dupe sink, and it
-   makes pulling into what you already have feel good.
+Long-standing locked decisions (2026-07-18): **mythology first, supers later
+as original legally-distinct characters** (never Marvel/DC IP — Roblox
+deletes those games); **idle-collector, not a battler**; **index pages are
+the backbone/flex surface** and the pack-open reveal is the dopamine core.
 
-**Index pages are the backbone / flex surface.** Page completion is the
-sticky chase and the leaderboard hook. The **summon animation** is the
-dopamine core — rare pulls need screen-filling juice.
-
-Anti-exploit invariant (from the principle below): **gacha RNG rolls on the
-server, always** — client-rolled summons get duped instantly.
+Anti-exploit invariant (from the principle below): **every roll (belt page,
+modifier, in-pack card) happens on the server, always.**
 
 ## Non-negotiable architecture principle
 
@@ -88,29 +116,38 @@ this if/when an official Wally release exists.
 src/
 ├── server/              → ServerScriptService.Server
 │   ├── Main.server.luau     entry point, wires up services
-│   ├── PlayerData.luau      profile lifecycle, Get/Set/Increment/Mutate
-│   ├── Conveyor.luau        card shop: per-player offer spawner (server RNG
-│   │                        weighted by Luck), expiry, buy validation
-│   ├── Income.luau          1 Hz passive payout from CardStats.totalIncome
+│   ├── PlayerData.luau      profile lifecycle, Get/Set/Increment/Mutate,
+│   │                        schema migration (old numeric Cards → entries)
+│   ├── Conveyor.luau        belt: per-player pack-offer spawner (server
+│   │                        rolls page + modifier), expiry, buy validation
+│   ├── Packs.luau           pack lifecycle: place (limit, timer) and open
+│   │                        (server rolls the card, best-wins modifier)
+│   ├── Claim.luau           income claims: ClaimCard / ClaimAll bank
+│   │                        rate × min(elapsed, cap), reset accrual clock
 │   └── ProfileStore.luau    vendored dependency
 ├── client/               → StarterPlayerScripts.Client
-│   └── Main.client.luau     HUD, conveyor belt UI, index view, toasts
+│   └── Main.client.luau     flat M2 test UI: belt strip, inventory/placed
+│                            lists, claimable index, toasts (replaced by the
+│                            physical world in M4)
 └── shared/                → ReplicatedStorage.Shared
     ├── Remotes.luau          typed remote references (DataChanged,
     │                         RequestData, OfferSpawned, OfferRemoved,
-    │                         BuyOffer, Notify)
+    │                         BuyOffer, PlacePack, OpenPack, ClaimCard,
+    │                         ClaimAll, Notify)
     ├── CardCatalog.luau      card defs (id, name, page, rarity, baseIncome)
     ├── PageCatalog.luau      index pages (16 pantheons) + completion bonuses
-    ├── ConveyorConfig.luau   belt tuning: spawn interval, travel time,
-    │                         prices + weights per rarity (display/animation
-    │                         on client; rolls are server-side)
-    └── CardStats.luau        pure card math (income, level curve, page
-    │                         completion) shared so client displays exactly
-    │                         what the server pays
+    ├── ModifierCatalog.luau  mutation ladder: mult, spawn weight, open time,
+    │                         color (Mortal → Primordial)
+    ├── PackConfig.luau       pack price, fixed in-pack rarity weights,
+    │                         storage cap, placement limit
+    ├── ConveyorConfig.luau   belt timing: spawn interval, travel time
+    └── CardStats.luau        pure card math (rates, pending accrual, page
+                              completion) shared so client displays exactly
+                              what the server pays
 ```
 
 Server-only code stays out of anything that replicates to clients. Shared
-modules (Remotes, UnitCatalog) are safe to require from both sides.
+modules (Remotes, catalogs, CardStats) are safe to require from both sides.
 
 ## Conventions
 
@@ -134,51 +171,51 @@ modules (Remotes, UnitCatalog) are safe to require from both sides.
 
 ## Current implementation state
 
-The backend spine survives every pivot; the card-collector domain layer
-(**Milestone 1**) plus the conveyor card shop are implemented on branch
-`feature/card-core` (pending Studio test + merge; the stale
-`feature/buy-system` branch was folded in and deleted).
+M1 (card core) merged to `main` via PR #1. **M2 — the pack economy — is
+implemented on branch `feature/pack-economy`** (pending Studio test + PR).
 
-Implemented:
-- Player profile load/save via ProfileStore, with session locking.
-- Schema: `Coins` (starts at 250 so a fresh player can afford first buys),
-  `Gems`, `Cards[cardId] = copies` (≥1 = discovered; copies drive
-  level/income), `Prestige`, `Luck` (default 1; multiplies non-Common
-  conveyor weights — raised by prestige/gamepasses later). Old dev profiles
-  may carry stale `Cash`/`Units`/`Rebirths` keys (Reconcile only adds) —
-  harmless.
-- **Conveyor card shop** (`Conveyor.luau`): every `SPAWN_INTERVAL` (2 s) the
-  server rolls an offer per player — rarity weighted 70/20/8/2 with Luck
-  multiplying non-Common weights, then a uniform card within the rarity —
-  and pushes it via `OfferSpawned`. Offers expire after `TRAVEL_TIME` (15 s),
-  i.e. **7.5 cards visible on the belt at once** (locked). Unaffordable
-  high-rarity spawns drifting past are **intentional monetization pressure**:
-  a planned dev product lets players Robux-buy an offer they can't yet
-  afford with Coins.
-  `BuyOffer(uid)` validates existence + expiry + Coins, then applies
-  atomically via `Mutate`; dupe = level-up. Prices per rarity:
-  50/150/400/1200. All tuning in `ConveyorConfig.luau`.
-- Passive income: `Income.luau` 1 Hz tick pays `CardStats.totalIncome`
-  (per-card `baseIncome × copies`, times the product of completed-page
-  bonuses). Demo `+5/sec` loop is gone.
-- Catalogs: 16 pantheon pages (Greek, Norse, Egyptian, Hindu, Celtic, Roman,
-  Japanese, Chinese, Aztec, Mayan, Slavic, Yoruba, Polynesian, Persian,
-  Inuit, Australian Aboriginal) × **9 placeholder cards each (3×3 page:
-  4C/2R/2E/1L**; base income 1/3/8/20). Roster needs a cultural-sensitivity
-  pass for living traditions before launch.
-- Client: code-built HUD (Coins, income/s), conveyor belt strip (offers
-  slide right→left over `travelTime`, tap to buy, rarity-colored), scrolling
-  index grouped by page with owned/??? rows, page completion
-  ("4/9" → "✓ COMPLETE").
+Milestone map: M2 economy core (this branch) → M3 upgrades + monetization
+(Auto-Collect, Robux x2/x4/x6, upgrade ladder, timer skips) → M4 physical
+world (plot, real belt, Tool-based pack placement, physical index book) →
+M5 juice (pack-open reveal, modifier VFX, sounds).
+
+Implemented (M2):
+- Player profile load/save via ProfileStore, with session locking. In-code
+  migration normalizes M1 profiles (`Cards[id] = number` → entry table).
+- Schema: `Coins` (250 start), `Gems`, `Cards[id] = {copies, modifier,
+  lastClaimAt}`, `Packs[uid] = {page, modifier, state, openReadyAt}` (string
+  uids from persisted `NextPackUid` — DataStore-safe), `Prestige`, `Luck`
+  (reserved, M3), `MutationLuck`.
+- **Belt** (`Conveyor.luau`): per-player pack offers every 2 s — page roll
+  weighted by tier falloff (Luck flattens it) + modifier roll (MutationLuck
+  × non-Mortal weights); offer price = pagePrice × modifier mult; 15 s
+  expiry; `BuyOffer` validates existence/expiry/Coins then atomically
+  stores the pack in inventory.
+- **Pack lifecycle** (`Packs.luau`): `PlacePack` enforces the placement
+  limit (4) and stamps `openReadyAt = now + modifier.openTime`; `OpenPack`
+  enforces the timer, rolls the card (fixed in-page rarity weights), then
+  atomically: consumes the pack, banks pending income at the OLD rate
+  (so rate increases are never retroactive), bumps copies, applies
+  best-wins modifier.
+- **Claims** (`Claim.luau`): `ClaimCard`/`ClaimAll` bank
+  `rate × min(elapsed, 1 h cap)` and reset `lastClaimAt`. No auto-credit
+  tick anymore — `Income.luau` is deleted; accrual is lazy via `CardStats`.
+- Catalogs: 16 pantheon pages × 9 cards (4C/2R/2E/1L, base income 1/3/8/20);
+  modifier ladder in `ModifierCatalog.luau`. Roster still needs a
+  cultural-sensitivity pass for living traditions before launch.
+- Client (flat M2 test UI, replaced in M4): belt strip of modifier-colored
+  pack offers, inventory list with Place, placed list with live countdowns +
+  Open, claimable per-card index rows (tap = claim), Collect All, Coins +
+  total rate HUD, toasts.
 
 Not yet built:
-- Physical conveyor in the world (current belt is a 2D UI strip), buy/reveal
-  juice, a real 3×3 grid index UI, prestige, limited-time events, trading,
-  the supers pages.
-- Per-player world/plot, real UI beyond the placeholder HUD.
-- Any monetization (gamepasses, dev products) — design leaves room (Luck,
-  x2 income, premium currency, auto-buy, and the planned **Robux
-  instant-unlock of an on-belt offer** noted above).
+- M3: upgrade ladder (Luck, cash, placement limit, mutation luck, storage
+  cap), Auto-Collect, Robux income ladder, timer skips, the Robux
+  instant-buy of an on-belt offer (needs offer-reserve during the purchase
+  prompt), premium pack tiers.
+- M4: per-player plot, physical belt/packs/index book, Tool-based placement,
+  menu shell (Index/Inventory/Shop/Items buttons).
+- M5: reveal juice. Also later: prestige, events, trading, supers pages.
 
 Tooling note: `selene.toml` (`std = "roblox"`) exists, but selene 0.31.0
 fails to generate its Roblox std here (its API-dump URL times out — the

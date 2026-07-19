@@ -1,12 +1,17 @@
 --!strict
--- Index pages (collection themes). `order` controls display order in the
--- index UI. `completionBonus` is a multiplicative income bonus granted while
--- every card on the page is owned (computed live from Cards, no claim state).
+-- Index pages (collection themes). Listed in POPULARITY order — that order
+-- IS the progression ladder: `tier` (= list position) drives pack price and
+-- card income scaling (see PackConfig.CLIMB_RATE), so Greek is the cheap
+-- starter rung and each later page costs/earns CLIMB_RATE× the previous.
+-- `order` doubles as display order in the index UI. `completionBonus` is a
+-- multiplicative income bonus granted while every card on the page is owned
+-- (computed live from Cards, no claim state).
 
 export type Page = {
 	id: string,
 	name: string,
 	order: number,
+	tier: number, -- ladder rung (1 = starter); scales pack price + income
 	completionBonus: number,
 }
 
@@ -35,6 +40,7 @@ for i, d in defs do
 		id = d[1],
 		name = d[2],
 		order = i,
+		tier = i,
 		completionBonus = 1.25, -- uniform for now; tune per page later
 	}
 end

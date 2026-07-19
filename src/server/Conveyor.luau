@@ -1,24 +1,29 @@
 --!strict
--- Card-shop conveyor. Every SPAWN_INTERVAL the server rolls a card offer per
--- player (weighted by rarity, shifted by their Luck stat) and pushes it to
--- their belt. Offers expire after TRAVEL_TIME. Buying is a request for a
--- specific offer uid; the server validates existence, expiry, and Coins.
+-- Pack-shop conveyor. Every SPAWN_INTERVAL the server rolls a page pack per
+-- player — a uniform page pick, plus a modifier ("mutation") rolled from
+-- ModifierCatalog weights with the player's MutationLuck multiplying every
+-- non-Mortal weight — and pushes it to their belt. Offers expire after
+-- TRAVEL_TIME. Buying moves the pack into the player's inventory (Packs);
+-- the card inside is NOT decided here — it's rolled when the pack is opened
+-- (Packs.luau).
 --
--- The roll happens HERE, never on the client — the client only renders
--- offers the server already decided on.
+-- All rolls happen HERE (or in Packs.luau), never on the client.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Remotes = require(Shared:WaitForChild("Remotes"))
-local CardCatalog = require(Shared:WaitForChild("CardCatalog"))
+local PageCatalog = require(Shared:WaitForChild("PageCatalog"))
+local ModifierCatalog = require(Shared:WaitForChild("ModifierCatalog"))
+local PackConfig = require(Shared:WaitForChild("PackConfig"))
 local Config = require(Shared:WaitForChild("ConveyorConfig"))
 local PlayerData = require(script.Parent.PlayerData)
 
 type Offer = {
 	uid: number,
-	cardId: string,
+	page: string,
+	modifier: string,
 	price: number,
 	expiresAt: number, -- os.clock() based
 }
@@ -26,74 +31,91 @@ type Offer = {
 local Conveyor = {}
 
 local rng = Random.new()
-local nextUid = 0
+local nextOfferUid = 0
 
--- Per-player belt state. Cleared on leave.
+-- Per-player belt state. Session-only; cleared on leave.
 local offers: { [Player]: { [number]: Offer } } = {}
 local nextSpawnAt: { [Player]: number } = {}
 
--- Cards grouped by rarity, precomputed once (catalog is static).
-local cardsByRarity: { [string]: { CardCatalog.Card } } = {}
-for _, card in CardCatalog do
-	local list = cardsByRarity[card.rarity]
-	if not list then
-		list = {}
-		cardsByRarity[card.rarity] = list
-	end
-	table.insert(list, card)
+-- Pages sorted by tier for the weighted appearance roll.
+local pagesByTier: { PageCatalog.Page } = {}
+for _, page in PageCatalog do
+	table.insert(pagesByTier, page)
 end
--- Deterministic order within a rarity (map iteration isn't).
-for _, list in cardsByRarity do
-	table.sort(list, function(a, b)
-		return a.id < b.id
-	end)
-end
+table.sort(pagesByTier, function(a, b)
+	return a.tier < b.tier
+end)
 
--- Roll a rarity bucket (Luck multiplies non-Common weights), then a uniform
--- card within it.
-local function rollCard(luck: number): CardCatalog.Card
-	local weights: { [string]: number } = {}
+-- Roll which page's pack appears. Low tiers dominate; Luck flattens the
+-- falloff so higher-tier packs surface more often (see ConveyorConfig).
+local function rollPage(luck: number): PageCatalog.Page
+	local safeLuck = math.max(luck, 1)
 	local total = 0
-	for rarity, base in Config.WEIGHT do
-		local w = if rarity == "Common" then base else base * luck
-		weights[rarity] = w
+	local weights: { number } = {}
+	for i, page in pagesByTier do
+		local w = Config.PAGE_FALLOFF ^ ((page.tier - 1) / safeLuck)
+		weights[i] = w
 		total += w
 	end
 
 	local pick = rng:NextNumber() * total
 	local acc = 0
-	local chosen = "Common"
-	for rarity, w in weights do
-		acc += w
+	for i, page in pagesByTier do
+		acc += weights[i]
 		if pick < acc then
-			chosen = rarity
-			break
+			return page
 		end
 	end
-
-	local list = cardsByRarity[chosen]
-	return list[rng:NextInteger(1, #list)]
+	return pagesByTier[1] -- float-edge fallback
 end
 
-local function spawnOffer(player: Player, luck: number)
+local function rollModifier(mutationLuck: number): string
+	local total = 0
+	local weights: { [number]: number } = {}
+	for i, mod in ModifierCatalog.list do
+		local w = if mod.id == "mortal" then mod.weight else mod.weight * mutationLuck
+		weights[i] = w
+		total += w
+	end
+
+	local pick = rng:NextNumber() * total
+	local acc = 0
+	for i, mod in ModifierCatalog.list do
+		acc += weights[i]
+		if pick < acc then
+			return mod.id
+		end
+	end
+	return "mortal" -- float-edge fallback
+end
+
+local function spawnOffer(player: Player, luck: number, mutationLuck: number)
 	local belt = offers[player]
 	if not belt then
 		return
 	end
 
-	local card = rollCard(luck)
-	nextUid += 1
+	local page = rollPage(luck)
+	local modifier = rollModifier(mutationLuck)
+	local mod = ModifierCatalog.byId[modifier]
+
+	nextOfferUid += 1
 	local offer: Offer = {
-		uid = nextUid,
-		cardId = card.id,
-		price = Config.PRICE[card.rarity] :: number,
+		uid = nextOfferUid,
+		page = page.id,
+		modifier = modifier,
+		-- Price = page ladder price × modifier mult (a Divine tier-1 pack
+		-- costs 100 × 10 = 1000). Server-computed and stored on the offer;
+		-- the client only displays it.
+		price = PackConfig.offerPrice(page.tier, mod.mult),
 		expiresAt = os.clock() + Config.TRAVEL_TIME,
 	}
 	belt[offer.uid] = offer
 
 	Remotes.OfferSpawned:FireClient(player, {
 		uid = offer.uid,
-		cardId = offer.cardId,
+		page = offer.page,
+		modifier = offer.modifier,
 		price = offer.price,
 		travelTime = Config.TRAVEL_TIME,
 	})
@@ -121,9 +143,12 @@ local function tryBuy(player: Player, uid: any)
 	end
 
 	-- 3. Validate affordability.
-	local card = CardCatalog[offer.cardId]
+	local page = PageCatalog[offer.page]
 	if data.Coins < offer.price then
-		Remotes.Notify:FireClient(player, `Not enough Coins for {card.name} ({offer.price}).`)
+		Remotes.Notify:FireClient(
+			player,
+			`Not enough Coins for that {page.name} Pack ({offer.price}).`
+		)
 		return
 	end
 
@@ -131,30 +156,33 @@ local function tryBuy(player: Player, uid: any)
 	--    check above and here, or two rapid buys could both pass step 3.
 	belt[uid] = nil
 
-	local isNew = false
 	PlayerData.Mutate(player, function(d)
 		d.Coins -= offer.price
-		local copies = (d.Cards[offer.cardId] or 0) + 1
-		d.Cards[offer.cardId] = copies
-		isNew = copies == 1
+		local packUid = tostring(d.NextPackUid)
+		d.NextPackUid += 1
+		d.Packs[packUid] = {
+			page = offer.page,
+			modifier = offer.modifier,
+			state = "stored",
+			openReadyAt = 0, -- set when placed
+		}
 	end)
 
 	Remotes.OfferRemoved:FireClient(player, uid)
-	if isNew then
-		Remotes.Notify:FireClient(player, `NEW! {card.name} ({card.rarity})`)
-	else
-		Remotes.Notify:FireClient(player, `{card.name} ({card.rarity}) leveled up!`)
-	end
+	local mod = ModifierCatalog.byId[offer.modifier]
+	local prefix = if mod.id == "mortal" then "" else `{mod.name} `
+	Remotes.Notify:FireClient(player, `Bought a {prefix}{page.name} Pack!`)
 end
 
 function Conveyor.Init()
-	Players.PlayerAdded:Connect(function(player)
+	local function track(player: Player)
 		offers[player] = {}
 		nextSpawnAt[player] = os.clock() + Config.SPAWN_INTERVAL
-	end)
+	end
+
+	Players.PlayerAdded:Connect(track)
 	for _, player in Players:GetPlayers() do
-		offers[player] = {}
-		nextSpawnAt[player] = os.clock() + Config.SPAWN_INTERVAL
+		track(player)
 	end
 
 	Players.PlayerRemoving:Connect(function(player)
@@ -183,7 +211,7 @@ function Conveyor.Init()
 					local data = PlayerData.Get(player)
 					-- Skip until the profile is loaded; no offers for nobody.
 					if data then
-						spawnOffer(player, data.Luck or 1)
+						spawnOffer(player, data.Luck or 1, data.MutationLuck or 1)
 					end
 				end
 			end
