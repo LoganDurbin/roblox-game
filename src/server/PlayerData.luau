@@ -6,10 +6,14 @@ local ProfileStore = require(script.Parent.ProfileStore)
 local Remotes = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Remotes"))
 
 local PROFILE_TEMPLATE = {
-	Cash = 0,
+	Coins = 250, -- enough for a couple of first summons; without a card, income is 0
 	Gems = 0,
-	Units = {}, -- collection: [unitId] = count
-	Rebirths = 0,
+	Cards = {}, -- collection: [cardId] = copies (>= 1 means discovered in the index)
+	Prestige = 0,
+	Luck = 1, -- multiplies non-Common conveyor spawn weights; raised by prestige/gamepasses later
+	-- Note: pre-pivot dev profiles may still carry Cash/Units/Rebirths keys
+	-- (Reconcile only adds missing keys, never removes). Harmless; ignore or
+	-- wipe test data.
 }
 
 local PlayerStore = ProfileStore.New("PlayerData", PROFILE_TEMPLATE)
@@ -95,6 +99,18 @@ function PlayerData.Init()
 			profile:EndSession()
 		end
 	end)
+end
+
+-- Run a mutation against the player's data and replicate once.
+-- Do NOT yield inside `fn` — the read/validate/write must stay atomic.
+function PlayerData.Mutate(player: Player, fn: (data: { [string]: any }) -> ()): boolean
+	local profile = Profiles[player]
+	if not profile then
+		return false
+	end
+	fn(profile.Data)
+	replicate(player)
+	return true
 end
 
 return PlayerData

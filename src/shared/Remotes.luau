@@ -36,4 +36,9 @@ end
 return {
 	DataChanged = getRemote("RemoteEvent", "DataChanged") :: RemoteEvent,
 	RequestData = getRemote("RemoteFunction", "RequestData") :: RemoteFunction,
+	-- Conveyor card shop: server pushes offers, client asks to buy one.
+	OfferSpawned = getRemote("RemoteEvent", "OfferSpawned") :: RemoteEvent,
+	OfferRemoved = getRemote("RemoteEvent", "OfferRemoved") :: RemoteEvent,
+	BuyOffer = getRemote("RemoteEvent", "BuyOffer") :: RemoteEvent,
+	Notify = getRemote("RemoteEvent", "Notify") :: RemoteEvent,
 }
