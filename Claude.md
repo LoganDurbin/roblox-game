@@ -147,10 +147,14 @@ Implemented:
   conveyor weights — raised by prestige/gamepasses later). Old dev profiles
   may carry stale `Cash`/`Units`/`Rebirths` keys (Reconcile only adds) —
   harmless.
-- **Conveyor card shop** (`Conveyor.luau`): every `SPAWN_INTERVAL` (3 s) the
+- **Conveyor card shop** (`Conveyor.luau`): every `SPAWN_INTERVAL` (2 s) the
   server rolls an offer per player — rarity weighted 70/20/8/2 with Luck
   multiplying non-Common weights, then a uniform card within the rarity —
-  and pushes it via `OfferSpawned`. Offers expire after `TRAVEL_TIME` (12 s).
+  and pushes it via `OfferSpawned`. Offers expire after `TRAVEL_TIME` (15 s),
+  i.e. **7.5 cards visible on the belt at once** (locked). Unaffordable
+  high-rarity spawns drifting past are **intentional monetization pressure**:
+  a planned dev product lets players Robux-buy an offer they can't yet
+  afford with Coins.
   `BuyOffer(uid)` validates existence + expiry + Coins, then applies
   atomically via `Mutate`; dupe = level-up. Prices per rarity:
   50/150/400/1200. All tuning in `ConveyorConfig.luau`.
@@ -173,7 +177,8 @@ Not yet built:
   the supers pages.
 - Per-player world/plot, real UI beyond the placeholder HUD.
 - Any monetization (gamepasses, dev products) — design leaves room (Luck,
-  x2 income, premium currency, auto-buy).
+  x2 income, premium currency, auto-buy, and the planned **Robux
+  instant-unlock of an on-belt offer** noted above).
 
 Tooling note: `selene.toml` (`std = "roblox"`) exists, but selene 0.31.0
 fails to generate its Roblox std here (its API-dump URL times out — the

@@ -5,11 +5,14 @@
 
 local ConveyorConfig = {
 	-- A new card offer spawns on each player's belt this often (seconds).
-	SPAWN_INTERVAL = 3,
+	SPAWN_INTERVAL = 2,
 
 	-- How long an offer takes to slide across the belt. Once elapsed, the
 	-- offer expires server-side and can no longer be bought.
-	TRAVEL_TIME = 12,
+	-- TRAVEL_TIME / SPAWN_INTERVAL = cards visible at once (7.5 by design:
+	-- unaffordable rare spawns drifting past are intentional — they seed the
+	-- Robux instant-unlock temptation, planned as a dev product).
+	TRAVEL_TIME = 15,
 
 	-- Buy price per rarity.
 	PRICE = {
