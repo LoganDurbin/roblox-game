@@ -6,10 +6,13 @@ local ProfileStore = require(script.Parent.ProfileStore)
 local Remotes = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Remotes"))
 
 local PROFILE_TEMPLATE = {
-	Cash = 0,
+	Coins = 250, -- enough for a couple of first summons; without a card, income is 0
 	Gems = 0,
-	Units = {}, -- collection: [unitId] = count
-	Rebirths = 0,
+	Cards = {}, -- collection: [cardId] = copies (>= 1 means discovered in the index)
+	Prestige = 0,
+	-- Note: pre-pivot dev profiles may still carry Cash/Units/Rebirths keys
+	-- (Reconcile only adds missing keys, never removes). Harmless; ignore or
+	-- wipe test data.
 }
 
 local PlayerStore = ProfileStore.New("PlayerData", PROFILE_TEMPLATE)

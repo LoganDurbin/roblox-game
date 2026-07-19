@@ -36,6 +36,6 @@ end
 return {
 	DataChanged = getRemote("RemoteEvent", "DataChanged") :: RemoteEvent,
 	RequestData = getRemote("RemoteFunction", "RequestData") :: RemoteFunction,
-	BuyUnit = getRemote("RemoteEvent", "BuyUnit") :: RemoteEvent,
+	Summon = getRemote("RemoteEvent", "Summon") :: RemoteEvent,
 	Notify = getRemote("RemoteEvent", "Notify") :: RemoteEvent,
 }

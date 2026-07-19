@@ -1,0 +1,2 @@
+# Vendored dependencies — keep upstream formatting so diffs stay meaningful.
+src/server/ProfileStore.luau

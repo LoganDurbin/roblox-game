@@ -7,10 +7,47 @@ living documentation, not a one-time snapshot.
 
 ## What this is
 
-A Roblox "brainrot"-style collector/grinder game (in the vein of Steal a
-Brainrot, Mine a Baddie, Anime Card Collection). Early production. Logan is
-the sole developer/scripter; a small friend group fills modeling, UI, and QA
+A Roblox **Gods & Supers Card Collection** game — a gacha/idle card
+collector. You summon cards, level them with duplicates, and fill a themed
+**index** whose pages are mythological pantheons (Greek, Norse, Egyptian, …)
+and — later — original superhero universes. Early production. Logan is the
+sole developer/scripter; a small friend group fills modeling, UI, and QA
 roles (mostly TBD — see Open Questions).
+
+**Direction pivoted 2026-07-18** (again) from the short-lived Brainrot Merge
+concept. The backend spine is genre-agnostic and unchanged across every
+pivot; only the domain layer is (re)built each time. Pre-pivot code
+(`Shop.luau`, `UnitCatalog.luau`, the `BuyUnit` remote, `Cash`) is slated for
+rework — see Current implementation state.
+
+## Locked core loop
+
+Idle-collector: **owned cards earn currency passively** → spend it to
+**Summon (server-side gacha RNG)** → new cards fill the **index**; duplicates
+**level up** the card you own (more income) → **completing an index page**
+(a pantheon/universe theme) grants a permanent income/luck bonus →
+**Prestige** later for a permanent multiplier + luck.
+
+Three decisions are locked (2026-07-18):
+
+1. **Mythology first; supers later.** Ship with public-domain pantheons
+   (Greek/Norse/Egyptian/…) as the first index pages. The "supers" side is
+   deferred — and when built, will use **original, legally-distinct**
+   characters (archetype-inspired), never actual Marvel/DC IP. Roblox deletes
+   games using copyrighted characters; this is a hard constraint.
+2. **Idle-collector, not a battler.** Cards passively generate currency;
+   there is no combat/deck system. Retention comes from the summon loop +
+   index completion, not PvP.
+3. **Duplicates level the card.** A repeat pull powers up the copy you own
+   (higher income) rather than being wasted — this is the dupe sink, and it
+   makes pulling into what you already have feel good.
+
+**Index pages are the backbone / flex surface.** Page completion is the
+sticky chase and the leaderboard hook. The **summon animation** is the
+dopamine core — rare pulls need screen-filling juice.
+
+Anti-exploit invariant (from the principle below): **gacha RNG rolls on the
+server, always** — client-rolled summons get duped instantly.
 
 ## Non-negotiable architecture principle
 
@@ -47,14 +84,21 @@ src/
 ├── server/              → ServerScriptService.Server
 │   ├── Main.server.luau     entry point, wires up services
 │   ├── PlayerData.luau      profile lifecycle, Get/Set/Increment/Mutate
-│   ├── Shop.luau            buy-request validation
+│   ├── Summon.luau          gacha: validate → server RNG roll → atomic apply
+│   ├── Income.luau          1 Hz passive payout from CardStats.totalIncome
 │   └── ProfileStore.luau    vendored dependency
 ├── client/               → StarterPlayerScripts.Client
-│   └── Main.client.luau     HUD, shop buttons, toast notifications
+│   └── Main.client.luau     HUD, summon button, index view, toasts
 └── shared/                → ReplicatedStorage.Shared
     ├── Remotes.luau          typed remote references (DataChanged,
-    │                         RequestData, BuyUnit, Notify)
-    └── UnitCatalog.luau      unit definitions (id, name, price, income, rarity)
+    │                         RequestData, Summon, Notify)
+    ├── CardCatalog.luau      card defs (id, name, page, rarity, baseIncome)
+    ├── PageCatalog.luau      index pages (16 pantheons) + completion bonuses
+    ├── SummonCatalog.luau    banners: cost + weighted pool (display-only on
+    │                         client; rolls are server-side)
+    └── CardStats.luau        pure card math (income, level curve, page
+    │                         completion) shared so client displays exactly
+    │                         what the server pays
 ```
 
 Server-only code stays out of anything that replicates to clients. Shared
@@ -82,31 +126,50 @@ modules (Remotes, UnitCatalog) are safe to require from both sides.
 
 ## Current implementation state
 
-Working end-to-end and tested in Studio:
+The backend spine survives every pivot; the card-collector domain layer
+(**Milestone 1**) is now implemented on top of it (branch
+`feature/buy-system`, pending Studio test + merge).
+
+Implemented:
 - Player profile load/save via ProfileStore, with session locking.
-- Cash replicates to client, rendered in a code-built HUD.
-- Demo passive-income loop in `Main.server.luau` (+5 Cash/sec to all
-  players) — **placeholder, delete once real generators exist.**
-- Buy system: client fires `BuyUnit` with a unit id → server validates the
-  unit exists and is affordable → deducts Cash, grants unit, replicates,
-  sends pass/fail toast via `Notify`.
+- Schema: `Coins` (starts at 250 so a fresh player can afford first
+  summons), `Gems`, `Cards[cardId] = copies` (≥1 = discovered; copies drive
+  level/income), `Prestige`. Old dev profiles may carry stale
+  `Cash`/`Units`/`Rebirths` keys (Reconcile only adds) — harmless.
+- `Summon` remote → `Summon.luau`: validate banner → check Coins → weighted
+  RNG roll **on the server** → atomic deduct+grant via `Mutate` → toast
+  ("NEW!" vs "leveled up!").
+- Passive income: `Income.luau` 1 Hz tick pays `CardStats.totalIncome`
+  (per-card `baseIncome × copies`, times the product of completed-page
+  bonuses). Demo `+5/sec` loop is gone.
+- Catalogs: 16 pantheon pages (Greek, Norse, Egyptian, Hindu, Celtic, Roman,
+  Japanese, Chinese, Aztec, Mayan, Slavic, Yoruba, Polynesian, Persian,
+  Inuit, Australian Aboriginal), 5 placeholder cards each (2C/1R/1E/1L;
+  weights 70/20/8/2, base income 1/3/8/20, cost 100). Roster needs a
+  cultural-sensitivity pass for living traditions before launch.
+- Client: code-built HUD (Coins, income/s), summon button, scrolling index
+  grouped by page with owned/??? rows, rarity colors, page completion
+  ("3/5" → "✓ COMPLETE").
 
 Not yet built:
-- Passive income *from owned units* (the `income` field in `UnitCatalog` is
-  defined but unused — currently only the demo loop grants Cash).
-- Gacha/roll system.
-- Rebirth/prestige.
-- Steal/PvP mechanic (design status: undecided, see Open Questions).
-- Persistent world/map, real UI beyond the placeholder HUD.
-- Any monetization (gamepasses, developer products).
+- Summon reveal animation (the dopamine core — next milestone), prestige,
+  limited-time banners (FOMO), trading, the supers pages.
+- Per-player world/plot, real UI beyond the placeholder HUD.
+- Any monetization (gamepasses, dev products) — design leaves room (luck,
+  x2 income, premium summon currency, auto-summon).
+
+Tooling note: `selene.toml` (`std = "roblox"`) exists, but selene 0.31.0
+fails to generate its Roblox std here (its API-dump URL times out — the
+mirror repo moved). Not a code issue; retry later or bump selene.
 
 ## Open design questions (blocking full production, not blocking dev work)
 
-The core loop, theme, collectible roster, world structure, and monetization
-plan are not yet locked. Full list lives in the project's role-breakdown doc
+Core loop and the three decisions above are now **locked** (see Locked core
+loop). Still open, and not blocking Milestone 1: currency naming/theming,
+rarity tiers & summon odds, the duplicate level curve, the full page/pantheon
+list & card roster, prestige thresholds/curve, and monetization specifics.
+Full list lives in the project's role-breakdown doc
 (`Roblox_Project_Breakdown.docx` if present in the repo/shared drive).
-Architecture and tooling don't depend on these answers, so backend work can
-continue in parallel with design decisions.
 
 ## Team
 
