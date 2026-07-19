@@ -22,11 +22,16 @@ rework — see Current implementation state.
 
 ## Locked core loop
 
-Idle-collector: **owned cards earn currency passively** → spend it to
-**Summon (server-side gacha RNG)** → new cards fill the **index**; duplicates
+Idle-collector: **owned cards earn currency passively** → spend it at the
+**conveyor card shop** (server rolls a card offer every few seconds, weighted
+by rarity × the player's **Luck** stat; offers slide across a belt and can be
+bought before they expire) → new cards fill the **index**; duplicates
 **level up** the card you own (more income) → **completing an index page**
-(a pantheon/universe theme) grants a permanent income/luck bonus →
-**Prestige** later for a permanent multiplier + luck.
+(a pantheon/universe theme) grants a permanent income bonus → **Prestige**
+later for a permanent multiplier + Luck.
+
+**Index pages are 3×3: exactly 9 cards per page** (4 Common / 2 Rare /
+2 Epic / 1 Legendary). Locked 2026-07-18.
 
 Three decisions are locked (2026-07-18):
 
@@ -84,18 +89,21 @@ src/
 ├── server/              → ServerScriptService.Server
 │   ├── Main.server.luau     entry point, wires up services
 │   ├── PlayerData.luau      profile lifecycle, Get/Set/Increment/Mutate
-│   ├── Summon.luau          gacha: validate → server RNG roll → atomic apply
+│   ├── Conveyor.luau        card shop: per-player offer spawner (server RNG
+│   │                        weighted by Luck), expiry, buy validation
 │   ├── Income.luau          1 Hz passive payout from CardStats.totalIncome
 │   └── ProfileStore.luau    vendored dependency
 ├── client/               → StarterPlayerScripts.Client
-│   └── Main.client.luau     HUD, summon button, index view, toasts
+│   └── Main.client.luau     HUD, conveyor belt UI, index view, toasts
 └── shared/                → ReplicatedStorage.Shared
     ├── Remotes.luau          typed remote references (DataChanged,
-    │                         RequestData, Summon, Notify)
+    │                         RequestData, OfferSpawned, OfferRemoved,
+    │                         BuyOffer, Notify)
     ├── CardCatalog.luau      card defs (id, name, page, rarity, baseIncome)
     ├── PageCatalog.luau      index pages (16 pantheons) + completion bonuses
-    ├── SummonCatalog.luau    banners: cost + weighted pool (display-only on
-    │                         client; rolls are server-side)
+    ├── ConveyorConfig.luau   belt tuning: spawn interval, travel time,
+    │                         prices + weights per rarity (display/animation
+    │                         on client; rolls are server-side)
     └── CardStats.luau        pure card math (income, level curve, page
     │                         completion) shared so client displays exactly
     │                         what the server pays
@@ -127,36 +135,45 @@ modules (Remotes, UnitCatalog) are safe to require from both sides.
 ## Current implementation state
 
 The backend spine survives every pivot; the card-collector domain layer
-(**Milestone 1**) is now implemented on top of it (branch
-`feature/buy-system`, pending Studio test + merge).
+(**Milestone 1**) plus the conveyor card shop are implemented on branch
+`feature/card-core` (pending Studio test + merge; the stale
+`feature/buy-system` branch was folded in and deleted).
 
 Implemented:
 - Player profile load/save via ProfileStore, with session locking.
-- Schema: `Coins` (starts at 250 so a fresh player can afford first
-  summons), `Gems`, `Cards[cardId] = copies` (≥1 = discovered; copies drive
-  level/income), `Prestige`. Old dev profiles may carry stale
-  `Cash`/`Units`/`Rebirths` keys (Reconcile only adds) — harmless.
-- `Summon` remote → `Summon.luau`: validate banner → check Coins → weighted
-  RNG roll **on the server** → atomic deduct+grant via `Mutate` → toast
-  ("NEW!" vs "leveled up!").
+- Schema: `Coins` (starts at 250 so a fresh player can afford first buys),
+  `Gems`, `Cards[cardId] = copies` (≥1 = discovered; copies drive
+  level/income), `Prestige`, `Luck` (default 1; multiplies non-Common
+  conveyor weights — raised by prestige/gamepasses later). Old dev profiles
+  may carry stale `Cash`/`Units`/`Rebirths` keys (Reconcile only adds) —
+  harmless.
+- **Conveyor card shop** (`Conveyor.luau`): every `SPAWN_INTERVAL` (3 s) the
+  server rolls an offer per player — rarity weighted 70/20/8/2 with Luck
+  multiplying non-Common weights, then a uniform card within the rarity —
+  and pushes it via `OfferSpawned`. Offers expire after `TRAVEL_TIME` (12 s).
+  `BuyOffer(uid)` validates existence + expiry + Coins, then applies
+  atomically via `Mutate`; dupe = level-up. Prices per rarity:
+  50/150/400/1200. All tuning in `ConveyorConfig.luau`.
 - Passive income: `Income.luau` 1 Hz tick pays `CardStats.totalIncome`
   (per-card `baseIncome × copies`, times the product of completed-page
   bonuses). Demo `+5/sec` loop is gone.
 - Catalogs: 16 pantheon pages (Greek, Norse, Egyptian, Hindu, Celtic, Roman,
   Japanese, Chinese, Aztec, Mayan, Slavic, Yoruba, Polynesian, Persian,
-  Inuit, Australian Aboriginal), 5 placeholder cards each (2C/1R/1E/1L;
-  weights 70/20/8/2, base income 1/3/8/20, cost 100). Roster needs a
-  cultural-sensitivity pass for living traditions before launch.
-- Client: code-built HUD (Coins, income/s), summon button, scrolling index
-  grouped by page with owned/??? rows, rarity colors, page completion
-  ("3/5" → "✓ COMPLETE").
+  Inuit, Australian Aboriginal) × **9 placeholder cards each (3×3 page:
+  4C/2R/2E/1L**; base income 1/3/8/20). Roster needs a cultural-sensitivity
+  pass for living traditions before launch.
+- Client: code-built HUD (Coins, income/s), conveyor belt strip (offers
+  slide right→left over `travelTime`, tap to buy, rarity-colored), scrolling
+  index grouped by page with owned/??? rows, page completion
+  ("4/9" → "✓ COMPLETE").
 
 Not yet built:
-- Summon reveal animation (the dopamine core — next milestone), prestige,
-  limited-time banners (FOMO), trading, the supers pages.
+- Physical conveyor in the world (current belt is a 2D UI strip), buy/reveal
+  juice, a real 3×3 grid index UI, prestige, limited-time events, trading,
+  the supers pages.
 - Per-player world/plot, real UI beyond the placeholder HUD.
-- Any monetization (gamepasses, dev products) — design leaves room (luck,
-  x2 income, premium summon currency, auto-summon).
+- Any monetization (gamepasses, dev products) — design leaves room (Luck,
+  x2 income, premium currency, auto-buy).
 
 Tooling note: `selene.toml` (`std = "roblox"`) exists, but selene 0.31.0
 fails to generate its Roblox std here (its API-dump URL times out — the

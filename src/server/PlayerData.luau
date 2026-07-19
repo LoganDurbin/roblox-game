@@ -10,6 +10,7 @@ local PROFILE_TEMPLATE = {
 	Gems = 0,
 	Cards = {}, -- collection: [cardId] = copies (>= 1 means discovered in the index)
 	Prestige = 0,
+	Luck = 1, -- multiplies non-Common conveyor spawn weights; raised by prestige/gamepasses later
 	-- Note: pre-pivot dev profiles may still carry Cash/Units/Rebirths keys
 	-- (Reconcile only adds missing keys, never removes). Harmless; ignore or
 	-- wipe test data.

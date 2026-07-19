@@ -1,12 +1,13 @@
 --!strict
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Remotes = require(Shared:WaitForChild("Remotes"))
+local CardCatalog = require(Shared:WaitForChild("CardCatalog"))
 local CardStats = require(Shared:WaitForChild("CardStats"))
 local PageCatalog = require(Shared:WaitForChild("PageCatalog"))
-local SummonCatalog = require(Shared:WaitForChild("SummonCatalog"))
 
 local player = Players.LocalPlayer
 local data: { [string]: any } = {}
@@ -25,9 +26,98 @@ gui.Name = "HUD"
 gui.ResetOnSpawn = false
 gui.Parent = player:WaitForChild("PlayerGui")
 
+-- ============================================================ conveyor belt
+-- Server-pushed offers slide right-to-left; tap one to buy it before it
+-- rides off the end. Placeholder UI strip — becomes a physical belt in the
+-- world milestone.
+
+local belt = Instance.new("Frame")
+belt.Name = "Conveyor"
+belt.Size = UDim2.new(1, 0, 0, 96)
+belt.Position = UDim2.fromOffset(0, 0)
+belt.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
+belt.BackgroundTransparency = 0.25
+belt.BorderSizePixel = 0
+belt.ClipsDescendants = true
+belt.Parent = gui
+
+local CARD_WIDTH = 110
+local offerFrames: { [number]: Frame } = {}
+
+local function removeOffer(uid: number)
+	local frame = offerFrames[uid]
+	if frame then
+		offerFrames[uid] = nil
+		frame:Destroy()
+	end
+end
+
+local function onOfferSpawned(
+	offer: { uid: number, cardId: string, price: number, travelTime: number }
+)
+	local card = CardCatalog[offer.cardId]
+	if not card then
+		return
+	end
+
+	local frame = Instance.new("Frame")
+	frame.Size = UDim2.fromOffset(CARD_WIDTH, 84)
+	frame.Position = UDim2.new(1, 0, 0, 6) -- enter from the right edge
+	frame.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
+	frame.BorderSizePixel = 0
+	frame.Parent = belt
+
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = RARITY_COLOR[card.rarity] :: Color3
+	stroke.Thickness = 2
+	stroke.Parent = frame
+
+	local nameLabel = Instance.new("TextLabel")
+	nameLabel.Size = UDim2.new(1, -8, 0, 34)
+	nameLabel.Position = UDim2.fromOffset(4, 4)
+	nameLabel.BackgroundTransparency = 1
+	nameLabel.TextColor3 = RARITY_COLOR[card.rarity] :: Color3
+	nameLabel.Font = Enum.Font.GothamBold
+	nameLabel.TextScaled = true
+	nameLabel.Text = card.name
+	nameLabel.Parent = frame
+
+	local buyBtn = Instance.new("TextButton")
+	buyBtn.Size = UDim2.new(1, -8, 0, 38)
+	buyBtn.Position = UDim2.fromOffset(4, 42)
+	buyBtn.BackgroundColor3 = Color3.fromRGB(45, 90, 170)
+	buyBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	buyBtn.Font = Enum.Font.GothamMedium
+	buyBtn.TextScaled = true
+	buyBtn.Text = `{offer.price}`
+	buyBtn.Parent = frame
+	buyBtn.Activated:Connect(function()
+		Remotes.BuyOffer:FireServer(offer.uid)
+	end)
+
+	offerFrames[offer.uid] = frame
+
+	-- Slide across the whole belt; gone when the tween ends (matches the
+	-- server's expiry — the server is still the one that decides validity).
+	local tween = TweenService:Create(
+		frame,
+		TweenInfo.new(offer.travelTime, Enum.EasingStyle.Linear),
+		{ Position = UDim2.new(0, -CARD_WIDTH, 0, 6) }
+	)
+	tween.Completed:Connect(function()
+		removeOffer(offer.uid)
+	end)
+	tween:Play()
+end
+
+Remotes.OfferSpawned.OnClientEvent:Connect(onOfferSpawned)
+Remotes.OfferRemoved.OnClientEvent:Connect(removeOffer)
+
+-- =================================================================== stats
+
 local coinsLabel = Instance.new("TextLabel")
 coinsLabel.Size = UDim2.fromOffset(220, 48)
-coinsLabel.Position = UDim2.fromOffset(16, 16)
+coinsLabel.Position = UDim2.fromOffset(16, 112)
 coinsLabel.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
 coinsLabel.BackgroundTransparency = 0.3
 coinsLabel.TextColor3 = Color3.fromRGB(255, 215, 90)
@@ -38,7 +128,7 @@ coinsLabel.Parent = gui
 
 local incomeLabel = Instance.new("TextLabel")
 incomeLabel.Size = UDim2.fromOffset(220, 28)
-incomeLabel.Position = UDim2.fromOffset(16, 68)
+incomeLabel.Position = UDim2.fromOffset(16, 164)
 incomeLabel.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
 incomeLabel.BackgroundTransparency = 0.3
 incomeLabel.TextColor3 = Color3.fromRGB(120, 230, 140)
@@ -50,7 +140,7 @@ incomeLabel.Parent = gui
 -- Toast for server feedback
 local toast = Instance.new("TextLabel")
 toast.Size = UDim2.fromOffset(320, 40)
-toast.Position = UDim2.fromOffset(16, 104)
+toast.Position = UDim2.fromOffset(16, 200)
 toast.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
 toast.BackgroundTransparency = 0.2
 toast.TextColor3 = Color3.fromRGB(240, 240, 240)
@@ -73,26 +163,14 @@ local function showToast(msg: string)
 end
 Remotes.Notify.OnClientEvent:Connect(showToast)
 
--- Summon button (one banner for now)
-local banner = SummonCatalog.standard
-local summonBtn = Instance.new("TextButton")
-summonBtn.Size = UDim2.fromOffset(220, 52)
-summonBtn.Position = UDim2.fromOffset(16, 152)
-summonBtn.BackgroundColor3 = Color3.fromRGB(45, 90, 170)
-summonBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-summonBtn.Font = Enum.Font.GothamBold
-summonBtn.TextScaled = true
-summonBtn.Text = `Summon ({banner.cost})`
-summonBtn.Parent = gui
-summonBtn.Activated:Connect(function()
-	Remotes.Summon:FireServer(banner.id)
-end)
+-- =================================================================== index
+-- One scrolling list, a header per page, a row per card (pages are 3x3 = 9
+-- cards; a proper grid view comes with the real UI pass). Built once;
+-- row/header texts update on data change.
 
--- Index: one scrolling list, a header per page, a row per card.
--- Built once; row/header texts update on data change.
 local index = Instance.new("ScrollingFrame")
-index.Size = UDim2.new(0, 280, 1, -232)
-index.Position = UDim2.fromOffset(16, 216)
+index.Size = UDim2.new(0, 280, 1, -256)
+index.Position = UDim2.fromOffset(16, 248)
 index.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
 index.BackgroundTransparency = 0.4
 index.BorderSizePixel = 0

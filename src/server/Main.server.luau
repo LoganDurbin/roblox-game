@@ -1,8 +1,8 @@
 --!strict
 local PlayerData = require(script.Parent.PlayerData)
-local Summon = require(script.Parent.Summon)
+local Conveyor = require(script.Parent.Conveyor)
 local Income = require(script.Parent.Income)
 
 PlayerData.Init()
-Summon.Init()
+Conveyor.Init()
 Income.Init()
