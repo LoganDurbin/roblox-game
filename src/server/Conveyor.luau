@@ -37,12 +37,37 @@ local nextOfferUid = 0
 local offers: { [Player]: { [number]: Offer } } = {}
 local nextSpawnAt: { [Player]: number } = {}
 
--- Page ids in a stable order for uniform rolls.
-local pageIds: { string } = {}
-for pageId in PageCatalog do
-	table.insert(pageIds, pageId)
+-- Pages sorted by tier for the weighted appearance roll.
+local pagesByTier: { PageCatalog.Page } = {}
+for _, page in PageCatalog do
+	table.insert(pagesByTier, page)
 end
-table.sort(pageIds)
+table.sort(pagesByTier, function(a, b)
+	return a.tier < b.tier
+end)
+
+-- Roll which page's pack appears. Low tiers dominate; Luck flattens the
+-- falloff so higher-tier packs surface more often (see ConveyorConfig).
+local function rollPage(luck: number): PageCatalog.Page
+	local safeLuck = math.max(luck, 1)
+	local total = 0
+	local weights: { number } = {}
+	for i, page in pagesByTier do
+		local w = Config.PAGE_FALLOFF ^ ((page.tier - 1) / safeLuck)
+		weights[i] = w
+		total += w
+	end
+
+	local pick = rng:NextNumber() * total
+	local acc = 0
+	for i, page in pagesByTier do
+		acc += weights[i]
+		if pick < acc then
+			return page
+		end
+	end
+	return pagesByTier[1] -- float-edge fallback
+end
 
 local function rollModifier(mutationLuck: number): string
 	local total = 0
@@ -64,18 +89,25 @@ local function rollModifier(mutationLuck: number): string
 	return "mortal" -- float-edge fallback
 end
 
-local function spawnOffer(player: Player, mutationLuck: number)
+local function spawnOffer(player: Player, luck: number, mutationLuck: number)
 	local belt = offers[player]
 	if not belt then
 		return
 	end
 
+	local page = rollPage(luck)
+	local modifier = rollModifier(mutationLuck)
+	local mod = ModifierCatalog.byId[modifier]
+
 	nextOfferUid += 1
 	local offer: Offer = {
 		uid = nextOfferUid,
-		page = pageIds[rng:NextInteger(1, #pageIds)],
-		modifier = rollModifier(mutationLuck),
-		price = PackConfig.PACK_PRICE,
+		page = page.id,
+		modifier = modifier,
+		-- Price = page ladder price × modifier mult (a Divine tier-1 pack
+		-- costs 100 × 10 = 1000). Server-computed and stored on the offer;
+		-- the client only displays it.
+		price = PackConfig.offerPrice(page.tier, mod.mult),
 		expiresAt = os.clock() + Config.TRAVEL_TIME,
 	}
 	belt[offer.uid] = offer
@@ -179,7 +211,7 @@ function Conveyor.Init()
 					local data = PlayerData.Get(player)
 					-- Skip until the profile is loaded; no offers for nobody.
 					if data then
-						spawnOffer(player, data.MutationLuck or 1)
+						spawnOffer(player, data.Luck or 1, data.MutationLuck or 1)
 					end
 				end
 			end

@@ -27,17 +27,31 @@ is only menu buttons (Index / Inventory / Shop / Items) + purchasable boosts.
 The economy below is fully specified; the physical world lands in M4 (until
 then a flat test UI drives the same server systems).
 
-1. **Belt sells page packs.** A personal conveyor spawns a pack offer every
-   2 s (per player, server-rolled): a uniform pantheon page + a rolled
-   **modifier**. Offers ride the belt 15 s (**7.5 visible**, locked) then
-   expire. Unaffordable high-modifier packs drifting past are intentional
-   monetization pressure (planned Robux instant-buy dev product).
+1. **Belt sells page packs on a price ladder.** A personal conveyor spawns
+   a pack offer every 2 s (per player, server-rolled). Pages are TIERED by
+   mythology popularity (Greek = tier 1 … Aboriginal = tier 16; the
+   PageCatalog list order IS the ladder). Pack price = `100 × R^(tier-1)`
+   with **R = CLIMB_RATE = 5** (PackConfig), uncapped — tier 16 lands in
+   the trillions and that's fine, because **card income scales by the same
+   R^(tier-1)**, so each page earns close enough to accrue the next rung
+   (per-rung climb time stays roughly constant; R is the master pace dial).
+   All 16 pages are eligible on the belt from the start — price alone gates
+   buying. Appearance weight falls off per tier
+   (`PAGE_FALLOFF^((tier-1)/Luck)`): affordable packs dominate, but any
+   spawn can be a high-tier pack drifting past — intentional monetization
+   pressure (planned Robux instant-buy dev product). **Luck's job (locked):
+   it flattens the page-tier falloff** so richer players see better packs;
+   `MutationLuck` is the separate dial for modifier odds. Offers ride the
+   belt 15 s (**7.5 visible**, locked) then expire.
 2. **Modifiers ("mutations")** — godly ladder, rolled at belt spawn, out of
    10000: Mortal 1× (9000), Blessed 2× (600), Hallowed 5× (250), Divine 10×
    (100), Ascendant 20× (40), Celestial 50× (9), Primordial 75× (1).
-   `MutationLuck` multiplies non-Mortal weights. Same flat pack price —
-   modifiers are a jackpot roll. Higher tiers take longer to open (15 s →
-   20 min ladder): the wait is part of the chase, and timer-skips sell later.
+   `MutationLuck` multiplies non-Mortal weights. **A modified pack costs
+   page price × the modifier's mult** (Divine Greek = 100 × 10 = 1000) —
+   money-neutral on paper, but the boost is permanent and skips the
+   leveling grind (the allure), and lucky rolls can't shortcut the ladder.
+   Higher tiers take longer to open (15 s → 20 min ladder): the wait is
+   part of the chase, and timer-skips sell later.
 3. **Buy → Inventory → Place → Open.** Bought packs go to a near-infinite
    inventory; placing (limit 4, upgradeable in M3) starts the open timer
    (absolute `os.time`, so it counts down offline). Opening **rolls the card
@@ -49,10 +63,11 @@ then a flat test UI drives the same server systems).
    copies (more income). The pack's modifier overwrites the card's stored
    one only if strictly better; equal/worse never downgrades.
 5. **Income is per-card and manually claimed.** Each unlocked card accrues
-   `baseIncome × copies × modifierMult × completionMult` Coins/sec into its
-   own pool, capped at 1 h of storage (upgradeable in M3); accrual is lazy
-   (`lastClaimAt`), which handles offline for free. Claiming (tap the card,
-   or paid Auto-Collect in M3) banks `rate × min(elapsed, cap)`.
+   `baseIncome × R^(tier-1) × copies × modifierMult × completionMult`
+   Coins/sec into its own pool, capped at 1 h of storage (upgradeable in
+   M3); accrual is lazy (`lastClaimAt`), which handles offline for free.
+   Claiming (tap the card, or paid Auto-Collect in M3) banks
+   `rate × min(elapsed, cap)`.
 6. **Completing a 3×3 index page** (exactly 9 cards: 4C/2R/2E/1L, locked)
    multiplies ALL rates by that page's bonus → **Prestige** later.
 
@@ -171,10 +186,11 @@ Implemented (M2):
   lastClaimAt}`, `Packs[uid] = {page, modifier, state, openReadyAt}` (string
   uids from persisted `NextPackUid` — DataStore-safe), `Prestige`, `Luck`
   (reserved, M3), `MutationLuck`.
-- **Belt** (`Conveyor.luau`): per-player pack offers every 2 s — uniform
-  page + modifier roll (MutationLuck × non-Mortal weights); 15 s expiry;
-  `BuyOffer` validates existence/expiry/Coins then atomically stores the
-  pack in inventory.
+- **Belt** (`Conveyor.luau`): per-player pack offers every 2 s — page roll
+  weighted by tier falloff (Luck flattens it) + modifier roll (MutationLuck
+  × non-Mortal weights); offer price = pagePrice × modifier mult; 15 s
+  expiry; `BuyOffer` validates existence/expiry/Coins then atomically
+  stores the pack in inventory.
 - **Pack lifecycle** (`Packs.luau`): `PlacePack` enforces the placement
   limit (4) and stamps `openReadyAt = now + modifier.openTime`; `OpenPack`
   enforces the timer, rolls the card (fixed in-page rarity weights), then

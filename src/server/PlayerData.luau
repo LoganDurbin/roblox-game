@@ -19,7 +19,7 @@ local PROFILE_TEMPLATE = {
 	Packs = {},
 	NextPackUid = 1, -- per-player counter so pack uids survive rejoins
 	Prestige = 0,
-	Luck = 1, -- reserved: belt-side pack luck (upgrades, M3)
+	Luck = 1, -- flattens the belt's page-tier falloff (higher-tier packs appear more); raised by M3 upgrades
 	MutationLuck = 1, -- multiplies non-Mortal modifier spawn weights (upgrades, M3)
 	-- Note: older dev profiles may still carry stale keys (Cash/Units/...) —
 	-- Reconcile only adds missing keys, never removes. Harmless; ignore or

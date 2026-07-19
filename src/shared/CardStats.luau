@@ -61,16 +61,20 @@ function CardStats.completionMult(cards: { [string]: CardEntry }): number
 end
 
 -- Coins/sec one card generates:
--- baseIncome × copies × modifier mult × completion mult.
+-- baseIncome × page tier mult × copies × modifier mult × completion mult.
+-- The tier multiplier tracks pack pricing (PackConfig.CLIMB_RATE) so every
+-- page earns in proportion to what the next rung costs.
 -- (Global cash upgrades / Robux multipliers fold in here in M3.)
 function CardStats.rateFor(cardId: string, entry: CardEntry, completionMult: number): number
 	local card = CardCatalog[cardId]
 	if not card or entry.copies < 1 then
 		return 0
 	end
+	local page = PageCatalog[card.page]
+	local tierMult = if page then PackConfig.tierIncomeMult(page.tier) else 1
 	local mod = ModifierCatalog.byId[entry.modifier]
 	local modMult = if mod then mod.mult else 1
-	return card.baseIncome * entry.copies * modMult * completionMult
+	return card.baseIncome * tierMult * entry.copies * modMult * completionMult
 end
 
 -- Unclaimed Coins sitting on a card at time `now`. Accrual stops at the

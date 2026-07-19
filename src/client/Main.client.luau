@@ -25,6 +25,19 @@ local RARITY_COLOR = {
 	Legendary = Color3.fromRGB(255, 190, 60),
 }
 
+-- Short number formatting (1.2K, 3.4M, ...) — ladder prices get big fast.
+local SUFFIXES = { "", "K", "M", "B", "T", "Qa", "Qi" }
+local function fmt(n: number): string
+	n = math.floor(n)
+	if n < 1000 then
+		return tostring(n)
+	end
+	local mag = math.min(math.floor(math.log10(n) / 3), #SUFFIXES - 1)
+	local scaled = n / 1000 ^ mag
+	local pattern = if scaled >= 100 then "%.0f%s" elseif scaled >= 10 then "%.1f%s" else "%.2f%s"
+	return string.format(pattern, scaled, SUFFIXES[mag + 1])
+end
+
 local gui = Instance.new("ScreenGui")
 gui.Name = "HUD"
 gui.ResetOnSpawn = false
@@ -43,7 +56,7 @@ local function makeLabel(parent: Instance, size: UDim2, pos: UDim2, color: Color
 	return label
 end
 
-local function makeScroll(pos: UDim2, size: UDim2): (ScrollingFrame, UIListLayout)
+local function makeScroll(parent: Instance, pos: UDim2, size: UDim2): (ScrollingFrame, UIListLayout)
 	local scroll = Instance.new("ScrollingFrame")
 	scroll.Position = pos
 	scroll.Size = size
@@ -53,13 +66,28 @@ local function makeScroll(pos: UDim2, size: UDim2): (ScrollingFrame, UIListLayou
 	scroll.ScrollBarThickness = 6
 	scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
 	scroll.CanvasSize = UDim2.fromOffset(0, 0)
-	scroll.Parent = gui
+	scroll.Parent = parent
 	local layout = Instance.new("UIListLayout")
 	layout.Padding = UDim.new(0, 2)
 	layout.SortOrder = Enum.SortOrder.LayoutOrder
 	layout.Parent = scroll
 	return scroll, layout
 end
+
+-- Three scale-based columns under the belt, so panels reflow with the window
+-- instead of overlapping at fixed pixel offsets:
+-- stats + inventory | placed | index.
+local function makeColumn(xScale: number, wScale: number): Frame
+	local col = Instance.new("Frame")
+	col.Position = UDim2.new(xScale, 0, 0, 108)
+	col.Size = UDim2.new(wScale, 0, 1, -116)
+	col.BackgroundTransparency = 1
+	col.Parent = gui
+	return col
+end
+local leftCol = makeColumn(0.01, 0.30)
+local midCol = makeColumn(0.335, 0.30)
+local rightCol = makeColumn(0.665, 0.325)
 
 -- ============================================================ conveyor belt
 -- Server-pushed PACK offers slide right-to-left; tap the price to buy one
@@ -137,7 +165,7 @@ local function onOfferSpawned(offer: {
 	buyBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 	buyBtn.Font = Enum.Font.GothamMedium
 	buyBtn.TextScaled = true
-	buyBtn.Text = `{offer.price}`
+	buyBtn.Text = fmt(offer.price)
 	buyBtn.Parent = frame
 	buyBtn.Activated:Connect(function()
 		Remotes.BuyOffer:FireServer(offer.uid)
@@ -161,40 +189,36 @@ Remotes.OfferRemoved.OnClientEvent:Connect(removeOffer)
 
 -- =================================================================== stats
 
-local coinsLabel = makeLabel(
-	gui,
-	UDim2.fromOffset(280, 40),
-	UDim2.fromOffset(16, 108),
-	Color3.fromRGB(255, 215, 90)
-)
+local coinsLabel =
+	makeLabel(leftCol, UDim2.new(1, 0, 0, 40), UDim2.fromOffset(0, 0), Color3.fromRGB(255, 215, 90))
 coinsLabel.Text = "Coins: ..."
 
 local rateLabel = makeLabel(
-	gui,
-	UDim2.fromOffset(280, 24),
-	UDim2.fromOffset(16, 152),
+	leftCol,
+	UDim2.new(1, 0, 0, 24),
+	UDim2.fromOffset(0, 44),
 	Color3.fromRGB(120, 230, 140)
 )
 rateLabel.Font = Enum.Font.Gotham
 rateLabel.Text = "+0/s while claimed"
 
 local claimAllBtn = Instance.new("TextButton")
-claimAllBtn.Size = UDim2.fromOffset(280, 36)
-claimAllBtn.Position = UDim2.fromOffset(16, 180)
+claimAllBtn.Size = UDim2.new(1, 0, 0, 36)
+claimAllBtn.Position = UDim2.fromOffset(0, 72)
 claimAllBtn.BackgroundColor3 = Color3.fromRGB(60, 140, 70)
 claimAllBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 claimAllBtn.Font = Enum.Font.GothamBold
 claimAllBtn.TextScaled = true
 claimAllBtn.Text = "Collect All"
-claimAllBtn.Parent = gui
+claimAllBtn.Parent = leftCol
 claimAllBtn.Activated:Connect(function()
 	Remotes.ClaimAll:FireServer()
 end)
 
 local toast = makeLabel(
-	gui,
-	UDim2.fromOffset(320, 36),
-	UDim2.fromOffset(16, 222),
+	leftCol,
+	UDim2.new(1, 0, 0, 36),
+	UDim2.fromOffset(0, 112),
 	Color3.fromRGB(240, 240, 240)
 )
 toast.Font = Enum.Font.Gotham
@@ -220,24 +244,20 @@ Remotes.Notify.OnClientEvent:Connect(showToast)
 -- rebuild on every data change; the 1 Hz loop below only refreshes timers.
 
 local invHeader = makeLabel(
-	gui,
-	UDim2.fromOffset(280, 24),
-	UDim2.fromOffset(16, 266),
+	leftCol,
+	UDim2.new(1, 0, 0, 24),
+	UDim2.fromOffset(0, 156),
 	Color3.fromRGB(255, 255, 255)
 )
 invHeader.Text = "Inventory (packs)"
 
-local invScroll = makeScroll(UDim2.fromOffset(16, 292), UDim2.new(0, 280, 1, -300))
+local invScroll = makeScroll(leftCol, UDim2.fromOffset(0, 184), UDim2.new(1, 0, 1, -184))
 
-local placedHeader = makeLabel(
-	gui,
-	UDim2.fromOffset(280, 24),
-	UDim2.fromOffset(312, 108),
-	Color3.fromRGB(255, 255, 255)
-)
+local placedHeader =
+	makeLabel(midCol, UDim2.new(1, 0, 0, 24), UDim2.fromOffset(0, 0), Color3.fromRGB(255, 255, 255))
 placedHeader.Text = "Placed (opening)"
 
-local placedScroll = makeScroll(UDim2.fromOffset(312, 134), UDim2.new(0, 280, 0, 320))
+local placedScroll = makeScroll(midCol, UDim2.fromOffset(0, 28), UDim2.new(1, 0, 1, -28))
 
 type PlacedRow = { timer: TextLabel, openBtn: TextButton, uid: string }
 local placedRows: { PlacedRow } = {}
@@ -335,7 +355,7 @@ end
 -- =================================================================== index
 -- Collection book: owned rows accrue pending Coins — tap a row to claim it.
 
-local index = makeScroll(UDim2.new(1, -312, 0, 108), UDim2.new(0, 296, 1, -116))
+local index = makeScroll(rightCol, UDim2.fromOffset(0, 0), UDim2.new(1, 0, 1, 0))
 
 type CardRow = { button: TextButton, cardId: string, cardName: string, rarity: string }
 type PageEntry = { header: TextLabel, page: PageCatalog.Page, rows: { CardRow } }
@@ -432,7 +452,8 @@ local function renderLive()
 				local pending = math.floor(CardStats.pendingFor(rate, cardEntry, now))
 				local mod = ModifierCatalog.byId[cardEntry.modifier]
 				local modTag = if mod and mod.id ~= "mortal" then ` [{mod.name}]` else ""
-				row.button.Text = `  {row.cardName} ×{cardEntry.copies}{modTag}  {pending} ⛃`
+				row.button.Text =
+					`  {row.cardName} ×{cardEntry.copies}{modTag}  {fmt(pending)} ⛃`
 			else
 				row.button.Text = "  ???"
 			end
@@ -445,8 +466,8 @@ local function renderLive()
 		end
 	end
 
-	coinsLabel.Text = `Coins: {math.floor(data.Coins or 0)}`
-	rateLabel.Text = `+{CardStats.totalRate(cards)}/s while claimed`
+	coinsLabel.Text = `Coins: {fmt(data.Coins or 0)}`
+	rateLabel.Text = `+{fmt(CardStats.totalRate(cards))}/s while claimed`
 end
 
 local function onData(newData: { [string]: any })
